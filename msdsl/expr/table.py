@@ -27,7 +27,7 @@ class Table:
 
     @property
     def path(self):
-        return self.dir / f'{self.name}.mem'
+        return Path.resolve(self.dir / f'{self.name}.mem')
 
 class UIntTable(Table):
     def __init__(self, vals, width=None, name='uint_table', dir='.'):
@@ -163,7 +163,7 @@ class RealTable(Table):
 
     @property
     def path(self):
-        return self.dir / f'{self.name}_exp_{self.exp}.mem'
+        return Path.resolve(self.dir / f'{self.name}_exp_{self.exp}.mem')
 
     def to_file(self, path=None):
         # set path if needed
