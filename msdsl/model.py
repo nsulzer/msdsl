@@ -1,9 +1,12 @@
 from collections import OrderedDict, Iterable
 from itertools import chain
 from numbers import Integral, Number
+from readline import insert_text
+from ssl import SSLWantWriteError
 from typing import List, Set, Union
 from copy import deepcopy
 from pathlib import Path
+import numpy as np
 
 from math import ceil, log2
 from scipy.stats import truncnorm
@@ -29,6 +32,7 @@ from msdsl.circuit import Circuit
 from msdsl.expr.table import Table, RealTable, SIntTable, UIntTable
 from msdsl.function import GeneralFunction, Function, PlaceholderFunction, MultiFunction
 from msdsl.lfsr import LFSR
+from msdsl.sweep import Sweep
 
 from scipy.signal import cont2discrete
 
@@ -1151,6 +1155,54 @@ class MixedSignalModel:
         """
         filter_func = lambda signal: isinstance(signal.format_, IntFormat)
         self._probe_selective(filter_func=filter_func, io_only=io_only)
+
+    def make_coef_sweep(self, name='param', ctrl='input', form='lin', range:tuple=[0, 1], numel=512, **kwargs):
+        """
+        :param name:    Name of sweeping signal
+        :param ctrl:    Name of control signal or handle to AnalogInput
+        :param form:    Sweep form. Can be 'lin', 'log10', or ...
+        :param range:   Range of the sweep
+        :param numel:   Number of values in the sweep. Must be power of 2!
+        :return:        Handle to signal whose value can be swept
+        """
+        # handle control input
+        if isinstance(ctrl,str):
+            input = self.add_analog_input(ctrl)
+        elif isinstance(ctrl, AnalogInput):
+            input = ctrl
+        else:
+            raise Exception(f'Invalid control input.')
+        # handle form
+        # TODO: Calculate domain from given range
+        # TODO: Add more function forms
+        if form == 'lin':
+            func = lambda input: input # func is a function of input, that returns input. f(x) = x
+        elif form == 'log10':
+            func = lambda input: np.log10(input)    # func is a function of input that returns log10(input). f(x) = log10(x);
+        else:
+            raise Exception(f'Invalid sweep form given: {form}')
+        # make sweep signal and retun
+        f = self.make_function(name=name, func=func, domain=range, numel=numel, **kwargs)
+        param = self.set_from_sync_func(signal=name, func=f, in_=input)
+
+        return param
+
+        # discretize transfer function
+        res = cont2discrete(tf, self.dt)
+
+        # get numerator and denominator coefficients
+        b = [+float(val) for val in res[0].flatten()]
+        a = [-float(val) for val in res[1].flatten()]
+
+        # create input and output histories
+        i_hist = self.make_history(input_, len(b), clk=clk, rst=rst)
+        o_hist = self.make_history(output, len(a), clk=clk, rst=rst)
+
+        # implement the filter
+        expr = sum_op([coeff * var for coeff, var in chain(zip(b, i_hist), zip(a[1:], o_hist))])
+
+        # make the assignment
+        self.set_next_cycle(signal=output, expr=expr, clk=clk, rst=rst)
 
 def main():
     from msdsl.eqn.deriv import Deriv
